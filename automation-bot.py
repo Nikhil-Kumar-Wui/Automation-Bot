@@ -152,9 +152,10 @@ def run_conversation(query):
 
 # Azure OpenAI setup
 client = AzureOpenAI(
-    azure_endpoint=st.secrets["AZURE_OPENAI"]["ENDPOINT"],
     api_key=st.secrets["AZURE_OPENAI"]["API_KEY"],
-    api_version="2024-12-01-preview")
+    api_version="2024-12-01-preview",
+    azure_endpoint=st.secrets["AZURE_OPENAI"]["ENDPOINT"]
+)
 
 deployment_name = st.secrets["AZURE_OPENAI"]["DEPLOYMENT"]
 
