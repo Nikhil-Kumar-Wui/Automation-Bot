@@ -154,8 +154,7 @@ def run_conversation(query):
 client = AzureOpenAI(
     azure_endpoint=st.secrets["AZURE_OPENAI"]["ENDPOINT"],
     api_key=st.secrets["AZURE_OPENAI"]["API_KEY"],
-    api_version="2024-12-01-preview"
-)
+    api_version="2024-12-01-preview")
 
 deployment_name = st.secrets["AZURE_OPENAI"]["DEPLOYMENT"]
 
@@ -168,6 +167,30 @@ col2, col1 = st.columns([10, 1])  # Emoji column smaller
 
 with col2:
     st.title("Automation Bot👾")
+
+with st.expander(" ℹ️How to use this Automation Bot?"):
+    st.markdown("""
+    **Instructions:**
+
+    - 📁 **Upload a PDF or Text file** from the sidebar to load custom data.
+    - 💬 **Ask questions** in the chat box below.
+    - 🤖 The bot will answer using your uploaded context (if provided).
+    - ⚙️ **Select automation** from the dropdown:
+        - 📤 **Send to Email** — Email the bot's response to an address in your query.
+        - ⚙️ **Trigger Zapier to Email** — Send to a Zapier webhook (e.g., Google Docs).
+        - 💾 **Save as Text File** — Locally save response and notify Zapier.
+    - 🧠 The bot can also detect if automation is implied from your query and trigger it automatically when 'None' is selected.
+    - 📧 If an email is detected in your query, it will be used for sending the result.
+
+    **Example Queries:**
+    - "What's the weather in Tokyo? Email it to nikhil@example.com"
+    - "Summarize this document and save it to Google Docs"
+    - "Give me the key takeaways from the uploaded file"
+
+    """)
+
+
+
 
 with col1:
     st.image("https://em-content.zobj.net/source/microsoft-teams/363/robot_1f916.png", width=40)
