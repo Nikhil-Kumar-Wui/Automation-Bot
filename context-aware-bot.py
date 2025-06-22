@@ -18,7 +18,7 @@ deployment_name = st.secrets["AZURE_OPENAI"]["DEPLOYMENT"]
 
 
 # Streamlit configuration
-st.set_page_config(page_title="Gemini Chatbot", page_icon=":mag_right:", layout="centered")
+st.set_page_config(page_title="Automation Bot", page_icon="🤖", layout="centered")
 
 col2, col1 = st.columns([10, 1])  # Emoji column smaller
 
