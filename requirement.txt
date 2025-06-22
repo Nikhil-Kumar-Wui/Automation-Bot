@@ -1,0 +1,26 @@
+# Core App + UI
+streamlit==1.45.1
+PyMuPDF==1.26.1
+
+# ML/Vector Support
+scikit-learn==1.7.0
+joblib==1.5.1
+numpy==2.3.0
+pandas==2.3.0
+
+# LLM API
+openai==1.30.5
+
+# For PDF chunking (safe version of textwrap)
+textwrap3==0.9.2
+
+# Web + Automation
+requests==2.32.4
+python-dotenv==1.1.0
+
+# Time/Date Handling
+pytz==2025.2
+python-dateutil==2.9.0.post0
+
+# Optional for Zapier / Protobuf APIs (safe combo)
+protobuf==5.29.5
