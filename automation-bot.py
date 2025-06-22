@@ -72,7 +72,14 @@ def extract_email_from_text(text):
 
 # Function to run the conversation with tools
 def run_conversation(query):
-    messages = [{"role": "user", "content": query}]
+    messages = [
+                {"role": "system", "content": (
+                    "You are a helpful assistant. You can answer user queries and assume external automation tools like Zapier "
+                    "will handle sending emails, saving documents, or triggering webhooks. "
+                    "Do not say 'I can't send email' — just respond with the answer and let the automation handle the rest."
+                )},
+                {"role": "user", "content": query}
+            ]
     tools = [
         {
             "type": "function",
@@ -280,13 +287,14 @@ st.subheader("Ask anything👀:")
 user_query = st.text_input("Your Question❓:")
 
 
-# Dropdown for automation type
-automation_type = st.selectbox(
-    "Choose automation type:",
-    ["❌ None", "📤 Send to Email", "⚙️ Trigger Zapier to Email", "💾 Save as Text File"],
-    index=0  # Default to "None"
-)
+dropdown_col, _ = st.columns([1, 1])  # Make the dropdown column narrower
 
+with dropdown_col:
+    automation_type = st.selectbox(
+        "Automation Type:",
+        ["❌ None", "📤 Send to Email", "⚙️ Trigger Zapier (Email/Docs)", "💾 Save as File / Google Docs"],
+        index=0
+    )
 def is_email_request_via_llm(query):
     check_prompt = f"""
     Analyze the following user query and determine if it implies any automation action such as:
@@ -306,8 +314,67 @@ def is_email_request_via_llm(query):
     answer = response.choices[0].message.content.strip().lower()
     return "yes" in answer
 
+# Keyword-based fallback (optional, can be removed if only LLM is used)
+def detect_save_target_from_query(query):
+    """Return 'local' or 'zapier' depending on keywords in intent."""
+    query_lower = query.lower()
+    if any(kw in query_lower for kw in ["local", "pc", "my computer", "download"]):
+        return "local"
+    elif any(kw in query_lower for kw in ["google docs", "google drive", "docs", "save online", "cloud"]):
+        return "zapier"
+    return "unknown"
+
+def detect_zapier_action_with_llm(query):
+    prompt = f"""
+    Determine what Zapier action is needed for the following query.
+
+    Respond with just one word:
+    - "email" if the user wants to send the response to an email address.
+    - "document" if the user wants to save the response to something like Google Docs.
+    - "unknown" if it's unclear.
+
+    Query: "{query}"
+    """
+    try:
+        response = client.chat.completions.create(
+            model=deployment_name,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        result = response.choices[0].message.content.strip().lower()
+        return result if result in ["email", "document"] else "unknown"
+    except Exception as e:
+        st.warning(f"Zapier action detection failed. Defaulting to 'unknown'. Error: {e}")
+        return "unknown"
+
+# LLM-based primary detection
+def detect_save_target_with_llm(query):
+    """Use LLM to classify if user wants local file or Google Docs."""
+    prompt = f"""
+    Determine the preferred save location for this user query.
+
+    Options:
+    - "local" — if the user wants to save as a file on their computer.
+    - "zapier" — if the user wants to save to an online destination like Google Docs.
+    - "unknown" — if unclear.
+
+    User query: "{query}"
+    Answer with only one word: local, zapier, or unknown.
+    """
+    try:
+        response = client.chat.completions.create(
+            model=deployment_name,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        answer = response.choices[0].message.content.strip().lower()
+        return answer if answer in ["local", "zapier"] else "unknown"
+    except Exception as e:
+        st.warning(f"LLM classification failed. Using keyword fallback. Error: {e}")
+        return detect_save_target_from_query(query)
+
+
 if st.button("Ask") and user_query:
     try:
+        # Decide if we use PDF-based prompt or tools
         if "vectorizer" in st.session_state:
             prompt = build_prompt(user_query)
             response = client.chat.completions.create(
@@ -316,11 +383,12 @@ if st.button("Ask") and user_query:
             )
             bot_reply = response.choices[0].message.content
         else:
-            # Use tool logic
             bot_reply = run_conversation(user_query)
 
+        # Add to history after response is generated
         st.session_state.history.append((user_query, bot_reply))
-        st.session_state.last_bot_reply = bot_reply  # Save for safety
+        st.session_state.last_bot_reply = bot_reply
+
 
         # Use LLM to classify user intent
         should_email = is_email_request_via_llm(user_query) 
@@ -328,40 +396,65 @@ if st.button("Ask") and user_query:
 
 
         if automation_type == "❌ None":
-            
+            try:
+                # Use LLM to detect automation intent
+                zapier_action = detect_zapier_action_with_llm(user_query)  # "email" or "document"
+                detected_target = detect_save_target_with_llm(user_query)  # "local" or "zapier"
 
-            if should_email:
-                # ✅ Try sending to a personal email if found in the query
-                recipient_email = extract_email_from_text(user_query)
-                if recipient_email:
-                    try:
-                        send_email_summary(recipient_email, "Bot Response", bot_reply)
-                        st.success(f"Email sent to {recipient_email} as detected from query! ✅")
-                    except Exception as e:
-                        st.error(f"Error sending email to {recipient_email}: {e}")
+                webhook_url = st.secrets["ZAPIER"]["WEBHOOK_URL"]
+                timestamp = datetime.now().isoformat()
+                filename = f"response_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+                full_text = f"User Query:\n{user_query}\n\nBot Reply:\n{bot_reply}"
+
+                # ---- Case: User wants email (via Zapier) ----
+                if zapier_action == "email":
+                    payload = {
+                        "action_type": "email",
+                        "user_query": user_query,
+                        "bot_reply": bot_reply,
+                        "timestamp": timestamp
+                    }
+
+                    recipient_email = extract_email_from_text(user_query)
+                    if recipient_email and recipient_email.endswith("@gmail.com"):
+                        payload["recipient_email"] = recipient_email
+                    else:
+                        st.warning("⚠️ No valid Gmail found. Zapier will proceed with default email.")
+
+                    response = requests.post(webhook_url, json=payload)
+                    if response.status_code == 200:
+                        st.success("📧 Zapier triggered to send email ✅")
+                    else:
+                        st.warning(f"Zapier email failed with status {response.status_code}")
+
+                # ---- Case: User wants to save to Docs via Zapier ----
+                elif zapier_action == "document" or detected_target == "zapier":
+                    payload = {
+                        "action_type": "document",
+                        "user_query": user_query,
+                        "bot_reply": bot_reply,
+                        "full_text": full_text,
+                        "filename": filename,
+                        "timestamp": timestamp
+                    }
+
+                    response = requests.post(webhook_url, json=payload)
+                    if response.status_code == 200:
+                        st.success("📄 Zapier triggered to save document ✅")
+                    else:
+                        st.warning(f"Zapier document save failed with status {response.status_code}")
+
+                # ---- Case: Local Save Requested ----
+                elif detected_target == "local":
+                    st.success("💾 Detected request to save locally ✅")
+                    st.download_button("⬇️ Download as Text File", full_text, filename, mime="text/plain")
+
+                # ---- Fallback: No automation needed ----
                 else:
-                    st.info("No email detected in the query, skipping email sending.")
+                    st.success("✅ Response generated. No automation triggered.")
 
-                
-                if re.search(r"\b(save|log|record|zapier)\b", user_query.lower()):
-                    try:
-                        webhook_url = st.secrets["ZAPIER"]["WEBHOOK_URL"]
-                        payload = {
-                            "summary": bot_reply,
-                            "user_query": user_query,
-                            "timestamp": datetime.now().isoformat(),
-                            "filename": f"response_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-                        }
-                        response = requests.post(webhook_url, json=payload)
-                        if response.status_code == 200:
-                            st.success("Sent to Zapier to save as file ✅")
-                        else:
-                            st.warning(f"Zapier returned status {response.status_code}")
-                    except Exception as e:
-                        st.error(f"Error sending to Zapier: {e}")
-
-            else:
-                st.success("Response generated successfully (no automation needed). ✅")
+            except Exception as e:
+                st.error(f"Automation detection failed: {e}")
 
 
         elif automation_type == "📤 Send to Email":
@@ -377,45 +470,82 @@ if st.button("Ask") and user_query:
             except Exception as e:
                 st.error(f"Email error: {e}")
 
-        elif automation_type == "⚙️ Trigger Zapier":
+        elif automation_type == "⚙️ Trigger Zapier (Email/Docs)":
             try:
-                webhook_url = "https://hooks.zapier.com/hooks/catch/23478174/uoej4lv/"
+                zapier_action = detect_zapier_action_with_llm(user_query)  # "email" or "document"
+                webhook_url = st.secrets["ZAPIER"]["WEBHOOK_URL"]
+
                 payload = {
-                    "summary": bot_reply,
+                    "action_type": zapier_action,
                     "user_query": user_query,
+                    "bot_reply": bot_reply,
                     "timestamp": datetime.now().isoformat()
                 }
-                response = requests.post(webhook_url, json=payload)
-                if response.status_code == 200:
-                    st.success("Zapier webhook triggered! ✅")
-                else:
-                    st.warning(f"Webhook returned {response.status_code}")
-            except Exception as e:
-                st.error(f"Zapier webhook failed: {e}")
 
-        elif automation_type == "💾 Save as Docs":
+                # 👇 If the user query mentions a Gmail and action is 'email', add it to payload
+                if zapier_action == "email":
+                    recipient_email = extract_email_from_text(user_query)
+                    if recipient_email and recipient_email.endswith("@gmail.com"):
+                        payload["recipient_email"] = recipient_email
+                    else:
+                        st.warning("⚠️ No valid Gmail address found in query. Zapier will proceed without recipient_email.")
+
+                elif zapier_action == "document":
+                    payload["filename"] = f"response_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+                    payload["full_text"] = f"User Query:\n{user_query}\n\nBot Reply:\n{bot_reply}"
+
+                # 🔁 Send to Zapier
+                response = requests.post(webhook_url, json=payload)
+
+                if response.status_code == 200:
+                    if zapier_action == "email":
+                        st.success("📧 Zapier triggered to send email ✅")
+                    else:
+                        st.success("📄 Zapier triggered to save document ✅")
+                else:
+                    st.warning(f"⚠️ Zapier returned status {response.status_code}")
+
+            except Exception as e:
+                st.error(f"Zapier automation failed: {e}")
+
+        elif automation_type == "💾 Save as File / Google Docs":
             try:
+                # Build content
+                full_text = f"User Query:\n{user_query}\n\nBot Reply:\n{bot_reply}"
                 file_name = f"response_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-                with open(file_name, "w", encoding="utf-8") as f:
-                    f.write(bot_reply)
-                st.success(f"Saved as {file_name} ✅")
 
-                # Also trigger Zapier to save as Google Doc
-                webhook_url = "https://hooks.zapier.com/hooks/catch/23478174/uoej4lv/"
-                payload = {
-                    "summary": bot_reply,
-                    "user_query": user_query,
-                    "timestamp": datetime.now().isoformat(),
-                    "filename": file_name
-                }
-                response = requests.post(webhook_url, json=payload)
-                if response.status_code == 200:
-                    st.success("Also sent to Zapier for Google Doc ✅")
+                # Automatically detect target
+                try:
+                    detected_target = detect_save_target_with_llm(user_query)
+                except Exception as e:
+                    st.warning(f"LLM detection failed. Using keyword fallback. Error: {e}")
+                    detected_target = detect_save_target_from_query(user_query)
+
+                if detected_target == "local":
+                    # Save file in memory for download
+                    st.success("Local save option selected ✅")
+                    st.download_button("⬇️ Download as Text File", full_text, file_name, mime="text/plain")
+
+                elif detected_target == "zapier":
+                    webhook_url = st.secrets["ZAPIER"]["WEBHOOK_URL"]
+                    payload = {
+                        "summary": bot_reply,
+                        "user_query": user_query,
+                        "full_text": full_text,
+                        "timestamp": datetime.now().isoformat(),
+                        "filename": file_name
+                    }
+                    response = requests.post(webhook_url, json=payload)
+                    if response.status_code == 200:
+                        st.success("Sent to Zapier for Google Doc ✅")
+                    else:
+                        st.warning(f"Zapier failed with status {response.status_code}")
+
                 else:
-                    st.warning(f"Zapier failed with status {response.status_code}")
-            except Exception as e:
-                st.error(f"Error saving file or calling Zapier: {e}")
+                    st.info("❓ Could not determine whether to save locally or to Google Docs. Please include 'save to PC' or 'save to Google Docs' in your query.")
 
+            except Exception as e:
+                st.error(f"Error during save operation: {e}")
     except Exception as e:
         st.error(f"Error generating response: {e}")
 if st.session_state.history:
@@ -445,5 +575,4 @@ if st.session_state.history:
             """,
             unsafe_allow_html=True
         )
-
 
