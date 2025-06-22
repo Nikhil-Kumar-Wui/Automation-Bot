@@ -178,22 +178,49 @@ with col2:
 
 with st.expander(" ℹ️How to use this Automation Bot?"):
     st.markdown("""
-    **Instructions:**
+    ### 👋 Welcome to Automation Bot!
+    A smart assistant that understands your queries and can take actions like emailing responses, saving documents, or answering questions from uploaded PDFs.
 
-    - 📁 **Upload a PDF or Text file** from the sidebar to load custom data.
-    - 💬 **Ask questions** in the chat box below.
-    - 🤖 The bot will answer using your uploaded context (if provided).
-    - ⚙️ **Select automation** from the dropdown:
-        - 📤 **Send to Email** — Email the bot's response to an address in your query.
-        - ⚙️ **Trigger Zapier to Email** — Send to a Zapier webhook (e.g., Google Docs).
-        - 💾 **Save as Text File** — Locally save response and notify Zapier.
-    - 🧠 The bot can also detect if automation is implied from your query and trigger it automatically when 'None' is selected.
-    - 📧 If an email is detected in your query, it will be used for sending the result.
+    ---
 
-    **Example Queries:**
-    - "What's the weather in Tokyo? Email it to nikhil@example.com"
-    - "Summarize this document and save it to Google Docs"
-    - "Give me the key takeaways from the uploaded file"
+    ### 📄 **Upload PDF or Text File**
+    - Go to the **sidebar**.
+    - Click **"Upload a Text or PDF file"**.
+    - The bot will extract and understand your document.
+    - You can then ask context-aware questions (e.g., *"Summarize the uploaded paper"*, *"What are the key takeaways?"*).
+
+    ---
+
+    ### 💬 **Ask Questions**
+    - Type your question in the **chat input box**.
+    - If a file is uploaded, it will use the document content to answer.
+    - If no file is uploaded, the bot will still answer using general knowledge or external tools like weather/time.
+
+    ---
+
+    ### ⚙️ **Automation Type Options (Dropdown)**
+
+    | Option | Description |
+    |--------|-------------|
+    | ❌ None | No automation — just display the response in the chat. However, if your query *implies* an automation (e.g., "Email this"), the bot may auto-trigger the correct action. |
+    | 📤 Send to Email | Sends the response to the email mentioned in your query (e.g., "Send this to john@gmail.com"). |
+    | ⚙️ Trigger Zapier (Email/Docs) | Triggers a connected **Zapier Webhook** for automation. It detects if you want to: <br> → **Email** someone via Zapier, or <br> → **Save** to Google Docs or another destination. |
+    | 💾 Save as File / Google Docs | Bot detects intent: <br> → Saves as downloadable text file, or <br> → Sends to Google Docs via Zapier. |
+
+    ⚠️ **Tip:** If you choose **None**, the bot will auto-detect intent based on your question!
+
+    ---
+
+    ### ✨ **Smart Automation Examples**
+    - *"What's the weather in Paris? Email it to nikhil@gmail.com"* → Sends weather info to email.
+    - *"Summarize this PDF and save to Google Docs"* → Triggers Zapier to save summary.
+    - *"Download this answer to my PC"* → Gives you a download link for a text file.
+
+    ---
+
+    ### 🧠 Behind the Scenes
+    - Uses **LLM-based intent detection** to infer what automation (if any) should be triggered.
+    - If email is found in your query, it is automatically used.
 
     """)
 
