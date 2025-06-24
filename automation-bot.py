@@ -155,6 +155,31 @@ def run_conversation(query):
     else:
         # No tool calls needed
         return response_message.content
+    
+# Function to detect top-k chunks based on user query
+def detect_top_k_from_query(query, default_k=5):
+    prompt = f"""
+    Decide how many context chunks to retrieve based on this user query.
+
+    - If the query is **broad** or asks for a **summary**, suggest 8–10 chunks.
+    - If the query is **specific**, suggest 2–3.
+    - If not sure, return {default_k}.
+
+    Just return the number (no text), like: 3, 5, 8, or 10.
+
+    Query: "{query}"
+    """
+    try:
+        response = client.chat.completions.create(
+            model=deployment_name,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        answer = response.choices[0].message.content.strip()
+        if answer.isdigit():
+            return min(max(int(answer), 2), 10)  # Clamp between 2 and 10
+    except Exception as e:
+        st.warning(f"Top-k detection failed. Using default. Error: {e}")
+    return default_k
 
 
 # Azure OpenAI setup
@@ -178,49 +203,22 @@ with col2:
 
 with st.expander(" ℹ️How to use this Automation Bot?"):
     st.markdown("""
-    ### 👋 Welcome to Automation Bot!
-    A smart assistant that understands your queries and can take actions like emailing responses, saving documents, or answering questions from uploaded PDFs.
+    **Instructions:**
 
-    ---
+    - 📁 **Upload a PDF or Text file** from the sidebar to load custom data.
+    - 💬 **Ask questions** in the chat box below.
+    - 🤖 The bot will answer using your uploaded context (if provided).
+    - ⚙️ **Select automation** from the dropdown:
+        - 📤 **Send to Email** — Email the bot's response to an address in your query.
+        - ⚙️ **Trigger Zapier to Email** — Send to a Zapier webhook (e.g., Google Docs).
+        - 💾 **Save as Text File** — Locally save response and notify Zapier.
+    - 🧠 The bot can also detect if automation is implied from your query and trigger it automatically when 'None' is selected.
+    - 📧 If an email is detected in your query, it will be used for sending the result.
 
-    ### 📄 **Upload PDF or Text File**
-    - Go to the **sidebar**.
-    - Click **"Upload a Text or PDF file"**.
-    - The bot will extract and understand your document.
-    - You can then ask context-aware questions (e.g., *"Summarize the uploaded paper"*, *"What are the key takeaways?"*).
-
-    ---
-
-    ### 💬 **Ask Questions**
-    - Type your question in the **chat input box**.
-    - If a file is uploaded, it will use the document content to answer.
-    - If no file is uploaded, the bot will still answer using general knowledge or external tools like weather/time.
-
-    ---
-
-    ### ⚙️ **Automation Type Options (Dropdown)**
-
-    | Option | Description |
-    |--------|-------------|
-    | ❌ None | No automation — just display the response in the chat. However, if your query *implies* an automation (e.g., "Email this"), the bot may auto-trigger the correct action. |
-    | 📤 Send to Email | Sends the response to the email mentioned in your query (e.g., "Send this to john@gmail.com"). |
-    | ⚙️ Trigger Zapier (Email/Docs) | Triggers a connected **Zapier Webhook** for automation. It detects if you want to: <br> → **Email** someone via Zapier, or <br> → **Save** to Google Docs or another destination. |
-    | 💾 Save as File / Google Docs | Bot detects intent: <br> → Saves as downloadable text file, or <br> → Sends to Google Docs via Zapier. |
-
-    ⚠️ **Tip:** If you choose **None**, the bot will auto-detect intent based on your question!
-
-    ---
-
-    ### ✨ **Smart Automation Examples**
-    - *"What's the weather in Paris? Email it to nikhil@gmail.com"* → Sends weather info to email.
-    - *"Summarize this PDF and save to Google Docs"* → Triggers Zapier to save summary.
-    - *"Download this answer to my PC"* → Gives you a download link for a text file.
-
-    ---
-
-    ### 🧠 Behind the Scenes
-    - Uses **LLM-based intent detection** to infer what automation (if any) should be triggered.
-    - If email is found in your query, it is automatically used.
+    **Example Queries:**
+    - "What's the weather in Tokyo? Email it to nikhil@example.com"
+    - "Summarize this document and save it to Google Docs"
+    - "Give me the key takeaways from the uploaded file"
 
     """)
 
@@ -254,9 +252,13 @@ def extract_text_from_pdf(uploaded_pdf):
 
 # helper function to get relevant chunks
 def get_relevant_chunks(query):
-    vec=st.session_state.vectorizer.transform([query])
+    vec = st.session_state.vectorizer.transform([query])
     similarities = cosine_similarity(vec, st.session_state.chunks_vectors).flatten()
-    top_indices=similarities.argsort()[-5:][::-1]
+    
+    # Ask LLM how many top chunks to use
+    top_k = detect_top_k_from_query(query)
+    
+    top_indices = similarities.argsort()[-top_k:][::-1]
     return "\n\n".join([st.session_state.chunks[i] for i in top_indices])
 
 def build_prompt(query):
